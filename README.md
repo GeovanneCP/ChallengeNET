@@ -71,6 +71,8 @@ A estrutura da tabela TB_CC_LOG_SAUDE armazena dados padronizados (NUMBER(10,2))
 A ordenação decrescente na rota de histórico foi projetada para alimentar dashboards analíticos e modelos de Machine Learning (Predição de Risco). Ao cruzar esses dados históricos, o sistema consegue identificar tendências perigosas (como febre persistente ou perda repentina de peso) e disparar alertas preventivos antes que os sintomas clínicos se agravem.
 
 ✒️ Integrantes
-Seu Nome Completo - RM: XXXXX
+Geovanne Coneglian Passos - RM: 562673
 
-Nome do Integrante 2 - RM: XXXXX
+Lucas Silva Gastão Pinheiro - RM: 563960
+
+Guilherme Soares De Almeida - RM: 563143

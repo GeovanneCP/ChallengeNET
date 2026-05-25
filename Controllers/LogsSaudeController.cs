@@ -21,8 +21,8 @@ namespace ClyvoCare.API.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<LogSaude>>> GetLogSaude()
         {
-         
-            if (!_context.Usuarios.Any())
+            // Alterado de Any() para Count() para corrigir o erro ORA-00904 do Oracle
+            if (_context.Usuarios.Count() == 0)
             {
                 return new List<LogSaude>();
             }
