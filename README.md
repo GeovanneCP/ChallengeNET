@@ -158,6 +158,7 @@ JSON
   "observacoes": "Dispositivo IoT coletou métricas normais durante o repouso.",
   "petId": 1
 }
+
 ✒️ Integrantes
 
 Geovanne Coneglian Passos - RM: 562673
