@@ -92,11 +92,13 @@ Ou via .NET CLI:
 
 PowerShell
 dotnet ef database update --project ChallengeNET
+
 3. Rodar a Aplicação
 Pressione F5 no Visual Studio ou utilize o terminal:
 
 PowerShell
 dotnet run --project ChallengeNET
+
 4. Acessar o Swagger
 Abra seu navegador e acesse a interface interativa:
 👉 https://localhost:7031/swagger (ou a porta gerada localmente)
