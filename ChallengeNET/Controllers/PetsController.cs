@@ -1,98 +1,61 @@
-﻿using ClyvoCare.API.Data;
+﻿using ClyvoCare.API.Data.Repositories;
 using ClyvoCare.API.DTOs;
 using ClyvoCare.API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace ClyvoCare.API.Controllers;
 
+[Authorize]
 [Route("api/[controller]")]
 [ApiController]
 public class PetsController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IRepository<Pet> _petRepository;
     private readonly ILogger<PetsController> _logger;
 
-    public PetsController(AppDbContext context, ILogger<PetsController> logger)
+    public PetsController(IRepository<Pet> petRepository, ILogger<PetsController> logger)
     {
-        _context = context;
+        _petRepository = petRepository;
         _logger = logger;
     }
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Pet>>> GetPet()
+    public async Task<ActionResult<PagedResult<HateoasResponse<Pet>>>> GetPets([FromQuery] PaginationFilter filter)
     {
-        _logger.LogInformation("Consultando listagem de pets.");
-        return await _context.Pets.ToListAsync();
+        _logger.LogInformation("A consultar listagem de pets com paginação e filtros.");
+
+        var paged = await _petRepository.GetPagedAsync(
+            filter,
+            p => string.IsNullOrEmpty(filter.SearchTerm) || p.Nome.ToLower().Contains(filter.SearchTerm.ToLower())
+        );
+
+        var responseItems = paged.Items.Select(pet => GerarHateoas(pet)).ToList();
+
+        return Ok(new PagedResult<HateoasResponse<Pet>>
+        {
+            Items = responseItems,
+            TotalCount = paged.TotalCount,
+            PageNumber = paged.PageNumber,
+            PageSize = paged.PageSize
+        });
     }
 
     [HttpGet("{id}", Name = "GetPetById")]
-    public async Task<ActionResult<Pet>> GetPet(int id)
+    public async Task<ActionResult<HateoasResponse<Pet>>> GetPet(int id)
     {
-        var pet = await _context.Pets.FindAsync(id);
+        var pet = await _petRepository.GetByIdAsync(id);
         if (pet == null)
         {
-            _logger.LogWarning("Pet com Id {PetId} nao encontrado.", id);
+            _logger.LogWarning("Pet com Id {PetId} não encontrado.", id);
             return NotFound();
         }
 
-        return pet;
-    }
-
-    [HttpGet("especie/{especie}")]
-    public async Task<ActionResult<IEnumerable<Pet>>> GetPorEspecie(string especie)
-    {
-        _logger.LogInformation("Buscando pets pela especie: {Especie}", especie);
-        return await _context.Pets
-            .Where(p => p.Especie.ToLower() == especie.ToLower())
-            .ToListAsync();
-    }
-
-    [HttpGet("tutor/{usuarioId}")]
-    public async Task<ActionResult<IEnumerable<Pet>>> GetPorTutor(int usuarioId)
-    {
-        _logger.LogInformation("Buscando pets associados ao tutor {UsuarioId}", usuarioId);
-        return await _context.Pets
-            .Where(p => p.UsuarioId == usuarioId)
-            .ToListAsync();
-    }
-
-    [HttpGet("busca/{nome}")]
-    public async Task<ActionResult<IEnumerable<Pet>>> GetPorNome(string nome)
-    {
-        _logger.LogInformation("Buscando pets por nome: {Nome}", nome);
-        return await _context.Pets
-            .Where(p => p.Nome.Contains(nome))
-            .ToListAsync();
-    }
-
-    [HttpPut("{id}")]
-    public async Task<IActionResult> PutPet(int id, Pet pet)
-    {
-        if (id != pet.Id)
-        {
-            _logger.LogWarning("Falha ao atualizar pet: Id da rota {RotaId} diverge do corpo {BodyId}.", id, pet.Id);
-            return BadRequest();
-        }
-
-        _context.Entry(pet).State = EntityState.Modified;
-
-        try
-        {
-            await _context.SaveChangesAsync();
-            _logger.LogInformation("Pet {PetId} atualizado com sucesso.", id);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            if (!_context.Pets.Any(e => e.Id == id)) return NotFound();
-            throw;
-        }
-
-        return NoContent();
+        return Ok(GerarHateoas(pet));
     }
 
     [HttpPost]
-    public async Task<ActionResult<Pet>> PostPet(PetCreateDTO petDto)
+    public async Task<ActionResult<HateoasResponse<Pet>>> PostPet([FromBody] PetCreateDTO petDto)
     {
         var pet = new Pet
         {
@@ -102,28 +65,56 @@ public class PetsController : ControllerBase
             UsuarioId = petDto.UsuarioId
         };
 
-        _context.Pets.Add(pet);
-        await _context.SaveChangesAsync();
+        await _petRepository.AddAsync(pet);
+        _logger.LogInformation("Pet registado com sucesso. Id: {PetId}", pet.Id);
 
-        _logger.LogInformation("Pet cadastrado com sucesso. Id: {PetId}, Tutor: {UsuarioId}", pet.Id, pet.UsuarioId);
+        var hateoas = GerarHateoas(pet);
+        return CreatedAtRoute("GetPetById", new { id = pet.Id }, hateoas);
+    }
 
-        return CreatedAtRoute("GetPetById", new { id = pet.Id }, pet);
+    [HttpPut("{id}")]
+    public async Task<IActionResult> PutPet(int id, [FromBody] Pet pet)
+    {
+        if (id != pet.Id)
+        {
+            _logger.LogWarning("Id de rota {RotaId} diverge do corpo {BodyId}.", id, pet.Id);
+            return BadRequest();
+        }
+
+        var existente = await _petRepository.GetByIdAsync(id);
+        if (existente == null)
+        {
+            return NotFound();
+        }
+
+        await _petRepository.UpdateAsync(pet);
+        _logger.LogInformation("Pet {PetId} atualizado com sucesso.", id);
+        return NoContent();
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeletePet(int id)
     {
-        var pet = await _context.Pets.FindAsync(id);
+        var pet = await _petRepository.GetByIdAsync(id);
         if (pet == null)
         {
-            _logger.LogWarning("Tentativa de exclusao falhou. Pet {PetId} nao encontrado.", id);
+            _logger.LogWarning("Tentativa de eliminação falhou. Pet {PetId} não encontrado.", id);
             return NotFound();
         }
 
-        _context.Pets.Remove(pet);
-        await _context.SaveChangesAsync();
-
+        await _petRepository.DeleteAsync(pet);
         _logger.LogInformation("Pet {PetId} removido com sucesso.", id);
         return NoContent();
+    }
+
+    private HateoasResponse<Pet> GerarHateoas(Pet pet)
+    {
+        var item = new HateoasResponse<Pet>(pet);
+        item.Links.Add(new LinkDto(Url.Link("GetPetById", new { id = pet.Id }) ?? $"/api/pets/{pet.Id}", "self", "GET"));
+        item.Links.Add(new LinkDto($"/api/pets/{pet.Id}", "update_pet", "PUT"));
+        item.Links.Add(new LinkDto($"/api/pets/{pet.Id}", "delete_pet", "DELETE"));
+        item.Links.Add(new LinkDto($"/api/logssaude/pet/{pet.Id}", "logs_saude", "GET"));
+        item.Links.Add(new LinkDto($"/api/telemetriapet/pet/{pet.Id}", "telemetria_nosql", "GET"));
+        return item;
     }
 }

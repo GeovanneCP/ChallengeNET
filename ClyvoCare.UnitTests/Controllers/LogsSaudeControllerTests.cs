@@ -41,7 +41,7 @@ public class LogsSaudeControllerTests
         var result = await controller.PostLogSaude(dto);
 
         // Assert
-        var createdResult = Assert.IsType<CreatedAtActionResult>(result.Result);
+        var createdResult = Assert.IsType<CreatedAtRouteResult>(result.Result);
         var log = Assert.IsType<LogSaude>(createdResult.Value);
         Assert.Equal(dto.PetId, log.PetId);
         Assert.Equal(dto.BatimentosCardiacos, log.BatimentosCardiacos);

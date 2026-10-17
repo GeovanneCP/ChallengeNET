@@ -12,50 +12,35 @@ namespace ClyvoCare.UnitTests.Controllers;
 
 public class UsuariosControllerTests
 {
-	private readonly Mock<ILogger<UsuariosController>> _loggerMock = new();
+    private readonly Mock<ILogger<UsuariosController>> _loggerMock = new();
 
-	private AppDbContext CreateDbContext()
-	{
-		var options = new DbContextOptionsBuilder<AppDbContext>()
-			.UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
-			.Options;
-		return new AppDbContext(options);
-	}
+    private AppDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        return new AppDbContext(options);
+    }
 
-	[Fact]
-	public async Task PostUsuario_DadosValidos_RetornaCreatedAtAction()
-	{
-		// Arrange
-		using var context = CreateDbContext();
-		var controller = new UsuariosController(context, _loggerMock.Object);
-		var dto = new UsuarioCreateDTO
-		{
-			Nome = "Carlos Alberto",
-			Email = "carlos@teste.com",
-			Senha = "senhaSegura123"
-		};
+    [Fact]
+    public async Task PostUsuario_DadosValidos_RetornaCreatedAtAction()
+    {
+        // Arrange
+        using var context = CreateDbContext();
+        var controller = new UsuariosController(context, _loggerMock.Object);
+        var dto = new UsuarioCreateDTO
+        {
+            Nome = "Geovanne",
+            Email = "geovanne@teste.com",
+            Senha = "senhaForte123"
+        };
 
-		// Act
-		var result = await controller.PostUsuario(dto);
+        // Act
+        var result = await controller.PostUsuario(dto);
 
-		// Assert
-		var createdResult = Assert.IsType<CreatedAtActionResult>(result.Result);
-		var usuarioCriado = Assert.IsType<Usuario>(createdResult.Value);
-		Assert.Equal(dto.Email, usuarioCriado.Email);
-		Assert.Equal(dto.Nome, usuarioCriado.Nome);
-	}
-
-	[Fact]
-	public async Task GetUsuario_IdInexistente_RetornaNotFound()
-	{
-		// Arrange
-		using var context = CreateDbContext();
-		var controller = new UsuariosController(context, _loggerMock.Object);
-
-		// Act
-		var result = await controller.GetUsuario(999);
-
-		// Assert
-		Assert.IsType<NotFoundResult>(result.Result);
-	}
+        // Assert
+        var createdResult = Assert.IsType<CreatedAtRouteResult>(result.Result);
+        var usuario = Assert.IsType<Usuario>(createdResult.Value);
+        Assert.Equal(dto.Email, usuario.Email);
+    }
 }

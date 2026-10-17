@@ -1,8 +1,14 @@
+using System.Text;
 using ClyvoCare.API.Data;
+using ClyvoCare.API.Data.Repositories;
 using ClyvoCare.API.Diagnostics;
 using ClyvoCare.API.HealthChecks;
+using ClyvoCare.API.Middlewares;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -10,7 +16,7 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuração de Logging Estruturado com Serilog
+// 1. Serilog Estruturado
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
@@ -20,22 +26,75 @@ builder.Host.UseSerilog();
 
 builder.Services.AddControllers();
 
-// Se não estiver no ambiente de testes, registra a conexão com o Oracle
+// 2. Base de Dados Relacional (Oracle)
 if (!builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddDbContext<AppDbContext>(options =>
         options.UseOracle(builder.Configuration.GetConnectionString("OracleConnection")));
 }
 
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// 3. Injeção de Dependências dos Repositórios (Relacional e NoSQL MongoDB)
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddSingleton<ITelemetriaMongoRepository, TelemetriaMongoRepository>();
 
-// Health Checks (Liveness e Readiness)
+// 4. Autenticação e Autorização JWT
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "ClyvoCareSecretKeyMuitoSeguraParaSprint4DotNet2026";
+var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.RequireHttpsMetadata = false;
+    options.SaveToken = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+        ValidateIssuer = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "ClyvoCareAPI",
+        ValidateAudience = true,
+        ValidAudience = builder.Configuration["Jwt:Audience"] ?? "ClyvoCareClient",
+        ClockSkew = TimeSpan.Zero
+    };
+});
+
+builder.Services.AddAuthorization();
+
+// 5. Swagger com Suporte a JWT Bearer Token
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "ClyvoCare API", Version = "v1", Description = "API Clyvo Care - Sprint 4" });
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Insira o token JWT desta forma: Bearer {seu_token}",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+// 6. Health Checks
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(), tags: new[] { "liveness" })
     .AddCheck<OracleDbHealthCheck>("oracle_db", tags: new[] { "readiness" });
 
-// OpenTelemetry (Tracing e Métricas)
+// 7. OpenTelemetry
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService(TelemetryConfig.ServiceName))
     .WithTracing(tracing => tracing
@@ -51,6 +110,9 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 
+// Middleware Global de Exceções (RFC 7807)
+app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -59,14 +121,16 @@ if (app.Environment.IsDevelopment())
 
 app.UseSerilogRequestLogging();
 app.UseHttpsRedirection();
+
+// Autenticação e Autorização
+app.UseAuthentication();
 app.UseAuthorization();
 
-// Endpoints de monitoramento
+// Endpoints de Monitoramento e Métricas
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("liveness")
 });
-
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("readiness")
