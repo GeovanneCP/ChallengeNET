@@ -4,13 +4,22 @@ O **Clyvo Companion** é uma plataforma de Backend desenvolvida para revoluciona
 
 ---
 
-## 🛠️ Tecnologias & Arquitetura
+## 🛠️ Tecnologias & Arquitetura (Sprint 4)
 
-* **Runtime:** .NET 8.0 (C# / ASP.NET Core Web API)
-* **Banco de Dados:** Oracle Database (Produção/Desenvolvimento via Entity Framework Core) e EF Core In-Memory (Testes de Integração)
-* **Documentação Interativa:** Swagger / OpenAPI
-* **Testes & Qualidade:** xUnit, Moq, FluentAssertions e `Microsoft.AspNetCore.Mvc.Testing` (`WebApplicationFactory`)
-* **Observabilidade & Telemetria:** OpenTelemetry (Métricas e Tracing distribuído), `ILogger<T>` estruturado e ASP.NET Core Health Checks
+- **Runtime:** .NET 8.0 (C# / ASP.NET Core Web API)
+- **Persistência Híbrida (SQL & NoSQL):**
+  - **Oracle Database:** Persistência relacional transacional (Tutores, Pets, Logs de Saúde) via Entity Framework Core.
+  - **MongoDB:** Persistência NoSQL de alta performance para telemetrias e séries temporais de dispositivos IoT (`PetTelemetriaNoSql`).
+  - **EF Core In-Memory:** Isolamento completo de banco de dados para a execução dos testes de integração.
+- **Padrões Arquiteturais:**
+  - **Repository Pattern:** Desacoplamento entre controladores e fontes de dados com repositório genérico (`IRepository<T>`) e repositório especializado NoSQL (`ITelemetriaMongoRepository`).
+  - **HATEOAS (Hypermedia as the Engine of Application State):** Links hipermídia semânticos nas respostas (`self`, `update_pet`, `delete_pet`, `telemetria_nosql`).
+  - **Paginação Estruturada:** Paginação server-side com filtros, ordenação e metadados (`PageNumber`, `PageSize`, `TotalPages`, `TotalCount`).
+  - **Tratamento Global de Exceções:** Middleware centralizado padronizado no formato **RFC 7807 (`ProblemDetails`)**.
+- **Segurança:** Autenticação e autorização baseadas em **JWT Bearer Tokens**, com rotas de domínio devidamente protegidas (`[Authorize]`).
+- **Documentação Interativa:** Swagger / OpenAPI configurado com suporte à autenticação Bearer Token.
+- **Testes & Qualidade:** xUnit, Moq, FluentAssertions e `Microsoft.AspNetCore.Mvc.Testing` (`WebApplicationFactory`).
+- **Observabilidade & Telemetria:** Serilog (Logging estruturado em arquivo e console), OpenTelemetry (Tracing distribuído W3C e métricas com Prometheus scraping `/metrics`) e ASP.NET Core Health Checks.
 
 ---
 
@@ -18,153 +27,190 @@ O **Clyvo Companion** é uma plataforma de Backend desenvolvida para revoluciona
 
 A aplicação segue uma divisão de responsabilidades desacoplada e manutenível:
 
-* **SRP (Single Responsibility Principle):** Controllers lidam exclusivamente com requisições HTTP e roteamento; Regras de negócio e persistência são isoladas em Services e Repositórios; Transferência de dados padronizada via DTOs dedicados (`UsuarioCreateDTO`, `LogSaudeCreateDTO`, etc.).
-* **OCP (Open/Closed Principle):** Estruturas preparadas para extensão sem modificação do código-base existente (ex.: filtros dinâmicos e novos providers de telemetria).
-* **LSP (Liskov Substitution Principle):** Abstrações e interfaces de repositórios/serviços intercambiáveis sem quebra de comportamento.
-* **ISP (Interface Segregation Principle):** Interfaces enxutas e focadas no domínio de cada entidade.
-* **DIP (Dependency Inversion Principle):** Dependência estrita de abstrações injetadas via contêiner nativo do .NET, utilizando os ciclos de vida adequados:
-  * **Scoped:** `DbContext`, Serviços de Domínio e Repositórios (uma instância por requisição HTTP).
-  * **Singleton:** Configurações de métricas, `ActivitySource` de telemetria e instâncias imutáveis.
-  * **Transient:** Validadores e formatadores leves e sem estado.
+- **SRP (Single Responsibility Principle):** Controllers lidam exclusivamente com requisições HTTP, roteamento e HATEOAS; Repositórios encapsulam o acesso ao Oracle e MongoDB; Erros não tratados são delegados ao Middleware Global.
+- **OCP (Open/Closed Principle):** Estruturas preparadas para extensão sem modificação do código-base existente (ex.: novos filtros de paginação e provedores de banco de dados).
+- **LSP (Liskov Substitution Principle):** Abstrações e interfaces intercambiáveis (como `IRepository<T>` e `ITelemetriaMongoRepository`) sem quebra de comportamento.
+- **ISP (Interface Segregation Principle):** Interfaces enxutas e focadas estritamente nas responsabilidades do seu domínio.
+- **DIP (Dependency Inversion Principle):** Dependência estrita de abstrações injetadas via contêiner nativo de DI do .NET:
+  * **Scoped:** `AppDbContext`, repositórios relacionais (`IRepository<>`).
+  * **Singleton:** `ITelemetriaMongoRepository`, telemetria do OpenTelemetry e métricas.
+  * **Transient:** Validadores e formatadores leves.
 
 ---
 
 ## 🚦 Health Checks (Monitoramento de Infraestrutura)
 
-A API implementa endpoints padronizados para monitoramento de integridade e orquestração (Kubernetes/Docker probes):
+A API implementa sondas padronizadas para orquestração de contêineres e observabilidade:
 
 | Endpoint | Tipo de Probe | Descrição |
 | :--- | :--- | :--- |
-| `GET /health/live` | **Liveness Probe** | Valida se a aplicação está em execução e respondendo às requisições HTTP básicas. |
-| `GET /health/ready` | **Readiness Probe** | Valida a disponibilidade e integridade das dependências críticas (ex.: conexão com o Oracle Database). |
+| `GET /health/live` | **Liveness Probe** | Valida se a aplicação está em execução e respondendo a requisições HTTP básicas. |
+| `GET /health/ready` | **Readiness Probe** | Valida a integridade e disponibilidade das dependências críticas (ex.: conexão com o Oracle Database). |
 
 ---
 
 ## 📊 Observabilidade & Telemetria
 
-A API conta com monitoramento distribuído e métricas de desempenho prontas para coleta:
-
-* **Logs Estruturados:** Utilização de `ILogger<T>` com identificadores semânticos em operações de CRUD e exceções de negócio, facilitando a busca e correlação em agregadores (ex.: Seq, ELK, Datadog).
-* **Tracing Distribuído:** Integração com `ActivitySource` e cabeçalhos W3C `traceparent` para rastreamento de ponta a ponta das requisições.
-* **Métricas com OpenTelemetry:**
-  * **Counter:** Contagem de requisições de logs de saúde e novos cadastros.
-  * **Histogram:** Distribuição e latência do tempo de resposta das operações de persistência.
+- **Serilog Estruturado:** Geração diária de logs em `Logs/clyvocare-.log` e console, enriquecidos com contexto de thread, máquina e correlation IDs.
+- **OpenTelemetry Tracing:** Rastreamento ponta a ponta com instrumentação nativa do ASP.NET Core e HttpClient.
+- **Métricas Prometheus:** Exposição de métricas de telemetria no endpoint `/metrics`.
 
 ---
 
-## 🧪 Estratégia de Testes Automatizados
+## 🔐 Autenticação e Segurança (JWT)
 
-A solução conta com duas suites de testes automatizados:
+A API utiliza tokens **JWT (JSON Web Token)** para proteção das rotas sensíveis:
 
-### 1. Testes Unitários (`ClyvoCare.UnitTests`)
-* Padrão de escrita **AAA (Arrange, Act, Assert)**.
-* Nomenclatura descritiva de testes: `Metodo_EstadoDoCenario_ComportamentoEsperado`.
-* Isolamento total de dependências com **Moq**, garantindo validação rápida de regras de domínio, limites numéricos de sinais vitais e validação de DTOs.
+1. Realize uma requisição `POST /api/Auth/login` enviando e-mail e senha cadastrados.
+2. Copie o token retornado na propriedade `token`.
+3. No **Swagger**, clique no botão **Authorize** (cadeado no canto superior direito) e informe seu token :
 
-### 2. Testes de Integração (`ClyvoCare.IntegrationTests`)
-* Execução em pipeline real HTTP via **`WebApplicationFactory<Program>`**.
-* Utilização de **xUnit Fixtures** (`CustomWebApplicationFactory`) com substituição do Oracle Database pelo **Entity Framework Core In-Memory Database** isolado.
-* Testes ponta a ponta dos endpoints de API (`/api/Usuarios`, `/api/LogsSaude`) e verificação das rotas de Health Check.
+   As rotas protegidas por [Authorize] (como Pets e TelemetriaPet) estarão autorizadas para consumo.
 
-### ⚙️ Executando os Testes no Terminal
+## 📖 Documentação dos Endpoints Principais
 
-Na raiz do repositório, execute:
+## 🔑 Autenticação
 
-# Executar todos os testes da solução
-dotnet test
+POST /api/Auth/login: Autentica o tutor e devolve o Token JWT com tempo de expiração.
 
-# Executar apenas os testes unitários
-dotnet test ClyvoCare.UnitTests
+## 👤 Usuários (Tutores)
 
-# Executar apenas os testes de integração
-dotnet test ClyvoCare.IntegrationTests
+GET /api/Usuarios: Lista todos os tutores cadastrados.
 
-🚀 Instruções de Instalação e Execução da API
-1. Configuração do Banco de Dados
-As credenciais de acesso ao Oracle Database estão definidas no appsettings.json. Certifique-se de estar conectado à VPN/rede adequada para comunicação com o banco.
+GET /api/Usuarios/{id}: Busca um tutor por ID.
 
-2. Aplicar Migrations
-No Package Manager Console do Visual Studio, execute:
+POST /api/Usuarios: Cadastra um novo tutor.
 
-PowerShell
-Update-Database
-Ou via .NET CLI:
+PUT /api/Usuarios/{id}: Atualiza os dados de um tutor.
 
-PowerShell
-dotnet ef database update --project ChallengeNET
+DELETE /api/Usuarios/{id}: Remove um tutor.
 
-3. Rodar a Aplicação
-Pressione F5 no Visual Studio ou utilize o terminal:
+## 🐶 Pets (Com HATEOAS, Paginação e [Authorize])
 
-PowerShell
-dotnet run --project ChallengeNET
+GET /api/Pets: Lista paginada de animais (pageNumber, pageSize, searchTerm) acompanhada de hiperlinks HATEOAS.
 
-4. Acessar o Swagger
-Abra seu navegador e acesse a interface interativa:
-👉 https://localhost:7031/swagger (ou a porta gerada localmente)
+GET /api/Pets/{id}: Busca detalhada do pet com links de navegação (self, update_pet, delete_pet, logs_saude, telemetria_nosql).
 
-📖 Documentação dos Endpoints
-👤 Usuários (Tutores)
-GET /api/Usuarios: Retorna a lista completa de tutores cadastrados.
+POST /api/Pets: Registra um novo animal vinculado a um tutor.
 
-GET /api/Usuarios/{id}: Busca os detalhes de um tutor específico por ID.
+PUT /api/Pets/{id}: Atualiza os dados cadastrais do pet.
 
-POST /api/Usuarios: Realiza o cadastro de um novo tutor (valida formato de e-mail e tamanho mínimo/máximo de senha).
+DELETE /api/Pets/{id}: Remove o animal.
 
-PUT /api/Usuarios/{id}: Atualiza os dados de um tutor existente.
+## 🩺 Logs de Saúde (Sensores Relacionais - Oracle)
 
-DELETE /api/Usuarios/{id}: Remove um tutor do sistema.
+POST /api/LogsSaude: Persiste leituras biométricas estruturadas com validações estritas ([Range]).
 
-🐶 Pets
-POST /api/Pets: Vincula um animal de estimação a um tutor existente. Requer usuarioId válido.
+GET /api/LogsSaude/pet/{petId}: Histórico de medições do animal ordenado cronologicamente.
 
-GET /api/Pets/especie/{especie}: Filtro parametrizado por espécie (ex: "Cachorro", "Gato").
+## 📡 Telemetria IoT (Persistência NoSQL - MongoDB)
 
-GET /api/Pets/tutor/{usuarioId}: Lista todos os pets associados a um tutor específico.
+POST /api/TelemetriaPet: Registra telemetrias de sensores em alta frequência (temperatura, batimentos e alertas) no MongoDB.
 
-GET /api/Pets/busca/{nome}: Busca textual aproximada por parte do nome do animal.
+GET /api/TelemetriaPet/pet/{petId}: Consulta o histórico de telemetrias NoSQL registradas para o pet.
 
-🩺 Logs de Saúde (Sensores & IoT)
-POST /api/LogsSaude: Recebe e persiste leituras biométricas (peso, temperatura, batimentos).
+## 📋 Exemplos de Payloads (JSON)
 
-GET /api/LogsSaude/pet/{petId}: Retorna o histórico cronológico de saúde do pet, ordenado do mais recente para o mais antigo.
+1. Login (POST /api/Auth/login)
 
-📋 Regras de Negócio e Exemplos de Payload (JSON)
-1. Cadastro de Usuário (POST /api/Usuarios)
-Regra: O e-mail deve ser válido e exclusivo. A senha precisa ter entre 6 e 20 caracteres.
+{
+  "email": "carlos.tutor@email.com",
+  "senha": "mypassword123"
+}
 
-JSON
+2. Cadastro de Usuário (POST /api/Usuarios)
+
 {
   "nome": "Carlos Andrade",
   "email": "carlos.tutor@email.com",
   "senha": "mypassword123"
 }
-2. Cadastro de Pet (POST /api/Pets)
-Regra: É obrigatório associar a um usuarioId já existente no banco de dados. Caso não exista, a requisição é rejeitada com 404 Not Found.
 
-JSON
-{
+3. Cadastro de Pet (POST /api/Pets)
+
+ {
   "nome": "Thor",
   "especie": "Cachorro",
   "dataNascimento": "2022-04-15",
   "usuarioId": 1
 }
-3. Registro de Logs de Saúde (POST /api/LogsSaude)
-Regra de Consistência para IA: O campo temperatura possui validação estrita com [Range(30, 45)] para evitar que leituras anômalas ou falhas de sensores comprometam os modelos preditivos de saúde.
 
-JSON
+4. Telemetria NoSQL (POST /api/TelemetriaPet)
+
 {
-  "peso": 12.50,
-  "temperatura": 38.60,
-  "batimentosCardiacos": 110,
-  "observacoes": "Dispositivo IoT coletou métricas normais durante o repouso.",
-  "petId": 1
+  "petId": 1,
+  "temperatura": 38.5,
+  "batimentos": 110,
+  "statusAlerta": "Normal"
 }
 
-✒️ Integrantes
+## 🧪 Estratégia de Testes Automatizados
+
+A solução conta com cobertura completa em duas frentes:
+
+1. Testes Unitários (ClyvoCare.UnitTests)
+
+Padrão AAA (Arrange, Act, Assert).
+
+Isolamento com Moq sobre IRepository<Pet> e serviços de log.
+
+Cobertura de rotas, respostas HATEOAS e validação de regras de domínio.
+
+2. Testes de Integração (ClyvoCare.IntegrationTests)
+
+Execução ponta a ponta via WebApplicationFactory<Program>.
+
+Injeção automática de Bearer Token nos cabeçalhos HTTP.
+
+Isolamento com EF Core In-Memory Database descartável por execução.
+
+Verificação de Health Checks e códigos de status HTTP (200 OK, 201 Created).
+
+## ⚙️ Como Rodar os Testes no Terminal
+
+Na raiz da solução:
+
+# Executa todos os testes unitários e de integração
+dotnet test
+
+## 🚀 Como Executar a API
+
+### 1. Pré-requisitos
+
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+
+- Instância do MongoDB em execução local (`mongodb://localhost:27017`) ou via Docker:
+
+  docker run -d -p 27017:27017 --name mongodb mongo:latest
+
+## 2. Executar a Aplicação
+
+Pelo Visual Studio:
+
+Abra a solução ClyvoCare.API.sln (ou ChallengeNET.sln).
+
+Certifique-se de que o perfil de inicialização está em https ou ClyvoCare.API.
+
+## Pelo Terminal:
+
+No terminal, na pasta raiz da solução, execute:
+
+dotnet run --project ChallengeNET
+
+## 3. Acessar a Documentação Interativa (Swagger)
+
+Abra o navegador no endereço:
+👉 https://localhost:7290/swagger (ou http://localhost:5145/swagger)
+
+Prima Ctrl + F5 (o navegador abrirá a página do Swagger automaticamente).
+
+## ✒️ Integrantes
 
 Geovanne Coneglian Passos - RM: 562673
 
 Lucas Silva Gastão Pinheiro - RM: 563960
 
 Guilherme Soares De Almeida - RM: 563143
+
+
+
